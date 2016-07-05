@@ -2,6 +2,7 @@
 
 # requirements
 from termcolor import colored
+import numpy as np
 import getopt
 import sys
 import cv2
@@ -28,10 +29,19 @@ if __name__ == "__main__":
         else:
             assert False, "unhandled option"
 
-    # create an instance of the image
-    print colored("main> ", "blue", attrs=["bold"]) + "Opening images"
+    # open images
+    print colored("main> ", "blue", attrs=["bold"]) + "Opening image %s" % leftimage
     l_img = cv2.imread(leftimage)
+    print colored("main> ", "blue", attrs=["bold"]) + "Image %s has resolution %sx%s" % (leftimage, l_img.shape[1], l_img.shape[0])
+
+    print colored("main> ", "blue", attrs=["bold"]) + "Opening image %s" % rightimage
     r_img = cv2.imread(rightimage)
-    
-    # print image width and height
-    
+    print colored("main> ", "blue", attrs=["bold"]) + "Image %s has resolution %sx%s" % (rightimage, r_img.shape[1], r_img.shape[0])
+
+    # initialization of outputimage
+    print colored("main> ", "blue", attrs=["bold"]) + "Initializing output image"
+    outimage = "out.png"
+    size = (max(r_img.shape[0], l_img.shape[0]), max(r_img.shape[1], l_img.shape[1]), 1)
+    o_img = np.zeros(size, dtype=np.uint8)
+    cv2.imshow("output image", o_img)
+    cv2.waitKey(0)
