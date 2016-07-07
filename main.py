@@ -10,7 +10,7 @@ import time
 import sys
 import cv2
 
-def fw_pixel_value(ref_pix, target_image):
+def pixelbased_pixel_value(ref_pix, target_image):
 
     # algorithm parameters
     min_distance = 100000
@@ -99,7 +99,7 @@ if __name__ == "__main__":
         ref_pix = l_img[y,x]
            
         # determine the pixel value for the output image
-        pv = fw_pixel_value(ref_pix, r_img)
+        pv = pixelbased_pixel_value(ref_pix, r_img)
         o_img.itemset((y, x, 0), pv)
 
     # display the output image
