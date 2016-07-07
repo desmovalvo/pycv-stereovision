@@ -10,6 +10,26 @@ import time
 import sys
 import cv2
 
+def fw_pixel_value(ref_pix, target_image):
+
+    # algorithm parameters
+    min_distance = 100000
+    
+    # initialization
+    disparity = 0
+
+    # calculate the output value
+    for xx in xrange(max(x-disp_range, 0), min(x+disp_range, o_width)):
+        tar_pix = target_image[y, xx]
+        d = distance.euclidean(ref_pix, tar_pix) 
+        if d < min_distance:
+            min_distance = d
+            disparity = x - xx
+
+    # return 
+    return int(float(255 * abs(disparity)) / (2 * disp_range))
+
+
 # main
 if __name__ == "__main__":
 
@@ -33,7 +53,7 @@ if __name__ == "__main__":
             assert False, "unhandled option"
 
     # algorithm parameters
-    disp_range = 10
+    disp_range = 15
 
     # open images
     print colored("main> ", "blue", attrs=["bold"]) + "Opening image %s" % leftimage
@@ -74,27 +94,12 @@ if __name__ == "__main__":
             y = newy
             print "RIGA %s" % y
         x = pixel % o_width
-        
-        # for the given pixel we should scan the entire
-        # line of the target image and calculate the residual
-            
-        # the starting pixel is at (x,y) in the reference image
-        # let's check every pixel in the target image at (x+d,y)            
-        min_distance = 100000
-        disparity = 0
+
+        # get a pixel from the reference image
         ref_pix = l_img[y,x]
-        for xx in xrange(x-disp_range, x+disp_range):
-            try:
-                tar_pix = r_img[y, xx]
-                d = distance.euclidean(ref_pix, tar_pix) 
-                if d < min_distance:
-                    min_distance = d
-                    disparity = x - xx
-            except:
-                pass
-                
-        # pixel value
-        pv = (float(255 * abs(disparity)) / (2 * disp_range))
+           
+        # determine the pixel value for the output image
+        pv = fw_pixel_value(ref_pix, r_img)
         o_img.itemset((y, x, 0), pv)
 
     # display the output image
