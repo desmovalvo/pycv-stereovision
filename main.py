@@ -17,6 +17,8 @@ import pdb
 # main
 if __name__ == "__main__":
 
+    starttime = time.time() * 1000
+
     # read command line parameters
     try:
         opts, args = getopt.getopt(sys.argv[1:], "vl:r:c:", ["verbose", "leftimg=", "rightimg=", "config="])
@@ -79,6 +81,8 @@ if __name__ == "__main__":
 
     elif settings["alg"].upper() == "SEGBASED":
         out_img = segmentation_based(l_img, r_img, o_img, configfile)
+
+    print time.time()*1000 - starttime
 
     # display the output image
     cv2.imshow("output image", out_img)
