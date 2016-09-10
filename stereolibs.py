@@ -99,20 +99,20 @@ def build_intensity_matrix(img):
     width = img.shape[1]
     height = img.shape[0]
 
-    # initialize the ii matrix
-    ii = []
+    # initialize the intensity_matrix matrix
+    intensity_matrix = []
 
     # algorithm
     for y in xrange(height):
         
         # add a line
-        ii.append([])
+        intensity_matrix.append([])
 
         for x in xrange(width):
-            ii[y].append(sqrt(img[y][x][0]**2 + img[y][x][1]**2 + img[y][x][2]**2))
+            intensity_matrix[y].append(sqrt(img[y][x][0]**2 + img[y][x][1]**2 + img[y][x][2]**2))
 
     # return
-    return ii
+    return intensity_matrix
 
 
 def build_integral_image_matrix(img):
@@ -637,118 +637,10 @@ def segment(img):
     """This function is used to segment an image"""
     
     # segmentation
-    print colored("main> ", "blue", attrs=["bold"]) + "Performing segmentation on image"
     seg_img = cv2.pyrMeanShiftFiltering(img, 30, 30)
 
     # return
     return seg_img
-
-
-def get_seg_window(x, y, width, height, ii, seg_ii, window_size, xoffset=0, yoffset=0):
-    
-    # estraiamo la sottomatrice dall'immagine segmentata
-    # la binarizziamo portando a 1 tutti i valori uguali al pixel centrale
-    #    e a 0 tutti i valori di versi
-    # estraiamo la stessa sottomatrice dall'immagine non segmentata
-    # moltiplichiamo le due matrici ottenendo il valore da ritornare
-    pass
-
-def segmentation_based_backup(ref_image, tar_image, out_image, settings_file):
-
-    # read settings
-    print colored("segbased> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
-    config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["disp_range"] = config.getint("segbased", "disp_range")
-    settings["window_size"] = config.getint("segbased", "window_size")
-    settings["policy"] = config.get("segbased", "policy")
-    try:
-        settings["threshold"] = config.getint("segbased", "threshold")
-    except:
-        pass
-
-    # get height and width
-    print colored("segbased> ", "blue", attrs=["bold"]) + "Reading image properties"
-    width = max(out_image.shape[1], out_image.shape[1])
-    height = max(out_image.shape[0], out_image.shape[0])
-
-    # segmentation of the reference image
-    # we also build a matrix with the euclidean norm of each pixel
-    print colored("segbased> ", "blue", attrs=["bold"]) + "Segmentation of the reference image"
-    ref_seg = segment(ref_image)
-    ref_seg_norm = []
-    for y in xrange(height):
-        ref_seg_norm.append([])
-        for x in xrange(width):
-            ref_seg_norm[y].append(sqrt(ref_seg[y][x][0]**2 + ref_seg[y][x][1]**2 + ref_seg[y][x][2]**2))
-    ref_seg_norm = numpy.array(ref_seg_norm)
-
-    # integral images
-    # note: for the reference image it can't be done since the weights
-    # changes depending on the segments
-    # note: the integral image maybe can be used even for the ref image
-    # but at runtime we need to subtract values of pixel belonging to other segments
-    print colored("segbased> ", "blue", attrs=["bold"]) + "Building integral images matrices"
-    # tar_ii = numpy.array(build_integral_image_matrix(tar_image))
-
-    # build matrix with intensities
-    ref_ii = numpy.array(build_intensity_matrix(ref_image))
-    tar_ii = numpy.array(build_intensity_matrix(tar_image))
-
-    # iterate over the pixels
-    print colored("segbased> ", "blue", attrs=["bold"]) + "Building disparity map"
-    y = 0
-    starttime = time.time()
-    for pixel in xrange(height * width):
-
-        # determine x and y
-        y = pixel / width
-        x = pixel % width
-
-        # initialize disparity and distance
-        min_distance = sys.maxint
-        disparity = 0
-
-        # get the window value for the reference pixel
-        py = range(max(0, y-settings["window_size"]),min(y+settings["window_size"], height))
-        px = range(max(0, x-settings["window_size"]),min(x+settings["window_size"], width))
-        indices = [(yyy * width + xxx) for xxx in px for yyy in py]
-        pw1 = ref_ii.take(indices)                
-
-        seg_window = ref_seg_norm.take(indices)
-        seg_bool = (seg_window - ref_seg_norm[y][x]) < 20
-        ref_win_sum = numpy.sum(seg_bool * pw1)
-        # iterate over the pixel of the target image
-        # between x-d and x+d 
-
-        for xx in xrange(max(x-settings["disp_range"], 0), min(x+settings["disp_range"], width)):
-
-            # get integral for the target pixel
-            # tar_sum = get_integral(xx, y, width, height, tar_ii, settings["window_size"])                    
-
-            # get the window value for the reference pixel
-            pxx = range(max(0, xx-settings["window_size"]),min(xx+settings["window_size"], width))
-            indices = [(yyyy * width + xxxx) for xxxx in pxx for yyyy in py]
-            tw1 = tar_ii.take(indices)                
-            try:
-                tar_sum = numpy.sum(seg_bool * tw1)
-            except:
-                pass
-
-            # comparison
-            d = abs(int(ref_win_sum) - int(tar_sum))
-            if d < min_distance:
-                min_distance = d
-                disparity = x - xx
-
-        # determine the pixel value for the output image
-        pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
-        out_image.itemset((y, x, 0), pixel_value)
-    
-    # return
-    return out_image
-
 
 
 def segmentation_based(ref_image, tar_image, out_image, settings_file):
@@ -768,62 +660,66 @@ def segmentation_based(ref_image, tar_image, out_image, settings_file):
 
     # get height and width
     print colored("segbased> ", "blue", attrs=["bold"]) + "Reading image properties"
-    width = max(out_image.shape[1], out_image.shape[1])
-    height = max(out_image.shape[0], out_image.shape[0])
+    width = out_image.shape[1]
+    height = out_image.shape[0]
     
     # build the intensity matrices
+    # TODO: multithread
     print colored("segbased> ", "blue", attrs=["bold"]) + "Building intensity matrices"
-    ref_ii = numpy.array(build_intensity_matrix(ref_image))
-    tar_ii = numpy.array(build_intensity_matrix(tar_image))
+    ref_intensity_matrix = numpy.array(build_intensity_matrix(ref_image)).ravel()
+    tar_intensity_matrix = numpy.array(build_intensity_matrix(tar_image)).ravel()
 
     # segmentation of the reference image
     # we also build a matrix with the euclidean norm of each pixel
     print colored("segbased> ", "blue", attrs=["bold"]) + "Segmentation of the reference image"
-    ref_seg = segment(ref_image)
-    ref_seg_norm = []
-    for y in xrange(height):
-        ref_seg_norm.append([])
-        for x in xrange(width):
-            ref_seg_norm[y].append(sqrt(ref_seg[y][x][0]**2 + ref_seg[y][x][1]**2 + ref_seg[y][x][2]**2))
-    ref_seg_norm = numpy.array(ref_seg_norm)
+    ref_seg_image = segment(ref_image)
+    ref_seg_intensity_matrix = numpy.array(build_intensity_matrix(ref_image)).ravel()
     
     # iterate over the pixels
     print colored("segbased> ", "blue", attrs=["bold"]) + "Building disparity map"
     y = 0
-    starttime = time.time()
+    starttime = time.time() * 1000
     for pixel in xrange(height * width):
 
         # determine x and y
         y = pixel / width
         x = pixel % width
-        print y
 
         # initialize disparity and distance
         min_distance = sys.maxint
         disparity = 0
 
-        # get the window value for the reference pixel
+        # calculate indices for reference image
         py = range(max(0, y-settings["window_size"]),min(y+settings["window_size"], height))
-        px = range(max(0, x-settings["window_size"]),min(x+settings["window_size"], width))
+        px = range(max(0, x-settings["window_size"]),min(x+settings["window_size"], width))    
+
+        # get the window of the reference image centered on (x,y)
         indices = [(yyy * width + xxx) for xxx in px for yyy in py]
-        pw1 = ref_ii.take(indices)                
+        pw1 = ref_intensity_matrix.take(indices)                
 
-        seg_window = ref_seg_norm.take(indices)
-        seg_bool = (seg_window - ref_seg_norm[y][x]) < 100
+        # get the window of the segmented image centered on (x,y)
+        # TODO: optimize while moving to the next column
+        seg_window = ref_seg_intensity_matrix.take(indices)
+        seg_bool = (seg_window - ref_seg_intensity_matrix[y*width+x]) < 100
         ref_win_sum = numpy.sum(seg_bool * pw1)
-        # iterate over the pixel of the target image
-        # between x-d and x+d 
 
-        for xx in xrange(max(x-settings["disp_range"], 0), x+1): #min(x+settings["disp_range"], width)):
+        # initialize indices for target image
+        
+        # iterate over the pixel of the target image between x-d and x 
+        for xx in xrange(max(x-settings["disp_range"], 0), x+1):
 
-            # get integral for the target pixel
-            # tar_sum = get_integral(xx, y, width, height, tar_ii, settings["window_size"])                    
-
-            # get the window value for the reference pixel
-            pxx = range(max(0, xx-settings["window_size"]),min(xx+settings["window_size"], width))
+            d = 0
+            
+            # calculate indices for target image
+            pxx = xrange(max(0, xx-settings["window_size"]),min(xx+settings["window_size"], width))
             indices = [(yyyy * width + xxxx) for xxxx in pxx for yyyy in py]
-            tw1 = tar_ii.take(indices)         
-                     
+
+            # indices of the new column
+            # nc_indices = [(y * width + xxxx) for y in py]
+
+            # get the window of the target image centered on (xx,y)
+            tw1 = tar_intensity_matrix.take(indices)         
+            
             try:
                 d = numpy.sum(abs(pw1*seg_bool - tw1))
             except:
@@ -837,6 +733,8 @@ def segmentation_based(ref_image, tar_image, out_image, settings_file):
         # determine the pixel value for the output image
         pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
         out_image.itemset((y, x, 0), pixel_value)
+
+    print time.time()*1000 - starttime
     
     # return
     return out_image
