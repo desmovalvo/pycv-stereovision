@@ -249,22 +249,12 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
     height = max(out_image.shape[0], out_image.shape[0])
 
     # convert to BW
+    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Converting images to BW"
     ref_bw = cv2.cvtColor(ref_image, cv2.COLOR_BGR2GRAY)
     tar_bw = cv2.cvtColor(tar_image, cv2.COLOR_BGR2GRAY)
 
-    # build the intensity matrices
-    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Building intensity matrices"
-    ref_in = numpy.array(build_intensity_matrix(ref_image))
-    tar_in = numpy.array(build_intensity_matrix(tar_image))
-
-    # build the integral images matrices
-    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Building integral images matrices"
-    ref_ii = build_integral_bw_image_matrix(ref_bw, True)
-    tar_ii = build_integral_bw_image_matrix(tar_bw, True)
-
     # iterate over the pixels
     print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Building disparity map"
-    y = 0
     for pixel in xrange(height * width):
 
         # determine x and y
@@ -274,12 +264,9 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
         # get the window value for the reference pixel
         py = range(y-settings["window_size"],y+settings["window_size"])
         px = range(x-settings["window_size"],x+settings["window_size"])
-        # py = range(max(0, y-settings["window_size"]),min(y+settings["window_size"], height))
-        # px = range(max(0, x-settings["window_size"]),min(x+settings["window_size"], width))        
         indices = [(yyy * width + xxx) for xxx in px for yyy in py]
-        pw1 = ref_in.take(indices, mode="wrap")      
+        pw1 = ref_bw.take(indices, mode="wrap")      
         minmatrix = numpy.full(pw1.shape, settings["threshold"])
-        ref_sum = get_integral(x, y, width, height, ref_ii, settings["window_size"])
         
         # initialize disparity and distance
         min_distance = sys.maxint
@@ -288,357 +275,33 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
         # iterate over the pixel of the target image
         # between x-d and x+d 
         for xx in xrange(max(x-settings["disp_range"], 0), x+1):
-            
+
+            # initialize d
             d = 0
 
-            # get the window value for the reference pixel
+            # get the window value for the target pixel
             pxx = range(xx-settings["window_size"],xx+settings["window_size"])
-            # pxx = range(max(0, xx-settings["window_size"]),min(xx+settings["window_size"], width))
             indices = [(yyyy * width + xxxx) for xxxx in pxx for yyyy in py]
-            tw1 = tar_in.take(indices, mode="wrap")                
+            tw1 = tar_bw.take(indices, mode="wrap")                
             
             # matching cost
             if settings["policy"] == "ABS_DIF":
-                try:
-                    d = numpy.sum(abs(pw1.astype(float)-tw1.astype(float)))
-                except:
-                    pass
+                d = numpy.sum(abs(pw1.astype(float)-tw1.astype(float)))
             
             elif settings["policy"] == "SQR_DIF":
-                try:
-                    # tar_sum = get_integral(xx, y, width, height, tar_ii, settings["window_size"])                    
-                    # d = ref_sum + tar_sum - 2 * (numpy.add.reduce(pw1.astype(numpy.float) * tw1.astype(numpy.float)))
-                    d = numpy.sum((pw1 - tw1)**2)
-                except Exception as e: 
-                    pass
+                d = numpy.sum((pw1 - tw1)**2)
 
             elif settings["policy"] == "TRA_DIF":
-                try:
-                    d = numpy.sum(numpy.minimum(abs(pw1-tw1), minmatrix))
-                except:
-                    pass
+                d = numpy.sum(numpy.minimum(abs(pw1-tw1), minmatrix))
 
             if d < min_distance:
                 min_distance = d
                 disparity = abs(x - xx)
         
         # determine the pixel value for the output image
-        # pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
-        pixel_value = int(float(255) / settings["disp_range"] * disparity)
+        pixel_value = int(float(255 / settings["disp_range"]) * disparity)
         out_image.itemset((y, x, 0), pixel_value)
 
-    # return
-    return out_image
-
-
-def fixedwindow_backup(ref_image, tar_image, out_image, settings_file):
-
-    # read settings
-    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
-    config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["disp_range"] = config.getint("fixedwindow", "disp_range")
-    settings["window_size"] = config.getint("fixedwindow", "window_size")
-    settings["policy"] = config.get("fixedwindow", "policy")
-    try:
-        settings["threshold"] = config.getint("fixedwindow", "threshold")
-    except:
-        pass
-
-    # get height and width
-    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Reading image properties"
-    width = max(out_image.shape[1], out_image.shape[1])
-    height = max(out_image.shape[0], out_image.shape[0])
-
-    # convert to BW
-    ref_bw = cv2.cvtColor(ref_image, cv2.COLOR_BGR2GRAY)
-    tar_bw = cv2.cvtColor(tar_image, cv2.COLOR_BGR2GRAY)
-
-    # build the integral images matrices
-    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Building integral images matrices"
-    ref_ii = build_integral_bw_image_matrix(ref_bw)
-    tar_ii = build_integral_bw_image_matrix(tar_bw)
-
-    # iterate over the pixels
-    print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Building disparity map"
-    y = 0
-    for pixel in xrange(height * width):
-
-        # determine x and y
-        y = pixel / width
-        x = pixel % width
-        
-        # initialize disparity and distance
-        min_distance = sys.maxint
-        disparity = 0
-        
-        # aggregation for the reference pixel
-        ref_sum = get_integral(x, y, width, height, ref_ii, settings["window_size"])
-
-        # iterate over the pixel of the target image
-        # between x-d and x+d 
-        for xx in xrange(max(x-settings["disp_range"], 0), x+1): # min(x+settings["disp_range"], width)):
-            
-            d = 0
-            tar_sum = get_integral(xx, y, width, height, tar_ii, settings["window_size"])                    
-
-            # matching cost
-            if settings["policy"] == "ABS_DIF":
-                d = abs(tar_sum - ref_sum)
-            elif settings["policy"] == "SQR_DIF":
-                d = (tar_sum - ref_sum) ** 2
-            elif settings["policy"] == "TRA_DIF":
-                d = min(abs(tar_sum - ref_sum), settings["threshold"])
-
-            if d < min_distance:
-                min_distance = d
-                disparity = abs(x - xx)
-        
-        # determine the pixel value for the output image
-        # pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
-        pixel_value = int(float(255) / settings["disp_range"] * disparity)
-        out_image.itemset((y, x, 0), pixel_value)
-
-    # return
-    return out_image
-
-
-
-###############################################################
-#
-# Shiftable windows -- ALG 2
-#
-###############################################################
-
-def shiftablewindow(ref_image, tar_image, out_image, settings_file):
-
-    # read settings
-    print colored("shiftablewindow> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
-    config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["disp_range"] = config.getint("shiftablewindow", "disp_range")
-    settings["window_size"] = config.getint("shiftablewindow", "window_size")
-    settings["policy"] = config.get("shiftablewindow", "policy")
-    try:
-        settings["threshold"] = config.getint("shiftablewindow", "threshold")
-    except:
-        pass
-
-    # get height and width
-    print colored("shiftablewindow> ", "blue", attrs=["bold"]) + "Reading image properties"
-    width = max(out_image.shape[1], out_image.shape[1])
-    height = max(out_image.shape[0], out_image.shape[0])
-
-    # generating couples of xoffset-yoffset
-    offsets = [[0,0]]
-
-    # N S W E
-    offsets.append([0, settings["window_size"]])
-    offsets.append([0, -1 * settings["window_size"]])
-    offsets.append([settings["window_size"], 0])
-    offsets.append([-1 * settings["window_size"], 0])
-    offsets.append([1, 0])
-    offsets.append([0, 1])
-    offsets.append([-1, 0])
-    offsets.append([0, -1])
-
-    # NW NE SW SE
-    offsets.append([-1 * settings["window_size"], -1 * settings["window_size"]])
-    offsets.append([-1 * settings["window_size"], settings["window_size"]])
-    offsets.append([settings["window_size"], settings["window_size"]])
-    offsets.append([settings["window_size"], -1 * settings["window_size"]])
-    offsets.append([1, 1])
-    offsets.append([-1, -1])
-    offsets.append([-1, 1])
-    offsets.append([1, -1])
-
-    # build the integral images matrices
-    print colored("shiftablewindow> ", "blue", attrs=["bold"]) + "Building integral images matrices"
-    ref_ii = build_integral_image_matrix(ref_image)
-    tar_ii = build_integral_image_matrix(tar_image)
-
-    # iterate over the pixels
-    print colored("shiftablewindow> ", "blue", attrs=["bold"]) + "Building disparity map"
-    y = 0
-    for pixel in xrange(height * width):
-
-        # determine x and y
-        y = pixel / width
-        x = pixel % width
-
-        # initialize disparity and distance
-        min_distance = sys.maxint
-        disparity = 0
-
-        # iterate over the offsets
-        for off in offsets:
-            
-            # aggregation for the reference pixel
-            ref_sum = get_integral(x, y, width, height, ref_ii, settings["window_size"], off[0], off[1])
-                
-            # iterate over the pixel of the target image
-            # between x-d and x+d 
-            for xx in xrange(max(x-settings["disp_range"], 0), min(x+settings["disp_range"], width)):
-                
-                d = 0
-                tar_sum = get_integral(xx, y, width, height, tar_ii, settings["window_size"], off[0], off[1])                    
-    
-                # matching cost
-                if settings["policy"] == "ABS_DIF":
-                    d = abs(tar_sum - ref_sum)
-                elif settings["policy"] == "SQR_DIF":
-                    d = (tar_sum - ref_sum) ** 2
-                elif settings["policy"] == "TRA_DIF":
-                    d = min(abs(tar_sum - ref_sum), settings["threshold"])
-    
-                if d < min_distance:
-                    min_distance = d
-                    disparity = x - xx
-                    
-            # determine the pixel value for the output image
-            pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
-            out_image.itemset((y, x, 0), pixel_value)
-    
-    # return
-    return out_image
-
-
-###############################################################
-#
-# Multiple windows -- ALG 3
-#
-###############################################################
-
-def multiplewindows(ref_image, tar_image, out_image, settings_file):
-
-    # read settings
-    print colored("multiplewindow> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
-    config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["disp_range"] = config.getint("multiplewindows", "disp_range")
-    settings["window_size"] = config.getint("multiplewindows", "window_size")
-    settings["policy"] = config.get("multiplewindows", "policy")
-    try:
-        settings["threshold"] = config.getint("multiplewindows", "threshold")
-    except:
-        pass
-
-    # get height and width
-    print colored("multiplewindow> ", "blue", attrs=["bold"]) + "Reading image properties"
-    width = max(out_image.shape[1], out_image.shape[1])
-    height = max(out_image.shape[0], out_image.shape[0])
-
-    # build the integral images matrices
-    print colored("multiplewindow> ", "blue", attrs=["bold"]) + "Building integral images matrices"
-    ref_ii = build_integral_image_matrix(ref_image)
-    tar_ii = build_integral_image_matrix(tar_image)
-
-    # iterate over the pixels
-    print colored("multiplewindow> ", "blue", attrs=["bold"]) + "Building disparity map"
-    y = 0
-    for pixel in xrange(height * width):
-
-        # determine x and y
-        y = pixel / width
-        x = pixel % width
-
-        # calculate the 9 sub-windows
-        ref_windows = []
-        
-        # N S W E
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], settings["window_size"] * 2 + 1, 0))
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], settings["window_size"] * -2 + 1, 0))
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], 0, settings["window_size"] * 2 + 1))
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], 0, settings["window_size"] * -2 + 1))
-
-        # NW NE SW SE
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], settings["window_size"] * 2 + 1, settings["window_size"] * 2 + 1))
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], settings["window_size"] * -2 + 1, settings["window_size"] * 2 + 1))
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], settings["window_size"] * 2 + 1, settings["window_size"] * -2 + 1))
-        ref_windows.append(get_integral(x, y, width, height, ref_ii, settings["window_size"], settings["window_size"] * -2 + 1, settings["window_size"] * -2 + 1))
-
-        # initialize disparity and distance
-        min_distance = sys.maxint
-        disparity = 0
-            
-        # aggregation for the reference pixel
-        ref_sum = get_integral(x, y, width, height, ref_ii, settings["window_size"])
-            
-        # iterate over the pixel of the target image
-        # between x-d and x+d 
-        for xx in xrange(max(x-settings["disp_range"], 0), min(x+settings["disp_range"], width)):
-            
-            d = 0
-
-            # aggregation for the target pixel
-            tar_sum = get_integral(xx, y, width, height, tar_ii, settings["window_size"])
-
-            # calculate the 9 sub-windows
-            tar_windows = []
-            
-            # N S W E
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], settings["window_size"] * 2 + 1, 0))
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], settings["window_size"] * -2 + 1, 0))
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], 0, settings["window_size"] * 2 + 1))
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], 0, settings["window_size"] * -2 + 1))
-            
-            # NW NE SW SE
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], settings["window_size"] * 2 + 1, settings["window_size"] * 2 + 1))
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], settings["window_size"] * -2 + 1, settings["window_size"] * 2 + 1))
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], settings["window_size"] * 2 + 1, settings["window_size"] * -2 + 1))
-            tar_windows.append(get_integral(x, y, width, height, tar_ii, settings["window_size"], settings["window_size"] * -2 + 1, settings["window_size"] * -2 + 1))
-
-            # matching cost
-            if settings["policy"] == "ABS_DIF":
-
-                # select the best 4 additional windows
-                full_list = []
-                for x in xrange(len(tar_windows)):
-                    full_list.append(abs(tar_windows[x] - ref_windows[x]))
-                full_list.sort()
-                    
-                # perform the sum
-                d = 0
-                for x in xrange(4):
-                    d += full_list[x]
-
-            elif settings["policy"] == "SQR_DIF":
-
-                # select the best 4 additional windows
-                full_list = []
-                for x in xrange(len(tar_windows)):
-                    full_list.append(tar_windows[x]**2 - ref_windows[x]**2)
-                full_list.sort()
-                
-                # perform the sum
-                d = 0
-                for x in xrange(4):
-                    d += full_list[x]
-
-            elif settings["policy"] == "TRA_DIF":
-
-                # select the best 4 additional windows
-                full_list = []
-                for x in xrange(len(tar_windows)):
-                    full_list.append(min(abs(tar_windows[x] - ref_windows[x]), settings["threshold"]))
-                full_list.sort()
-                
-                # perform the sum
-                d = 0
-                for x in xrange(4):
-                    d += full_list[x]
-
-            if d < min_distance:
-                min_distance = d
-                disparity = x - xx
-                
-        # determine the pixel value for the output image
-        pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
-        out_image.itemset((y, x, 0), pixel_value)
-    
     # return
     return out_image
 
