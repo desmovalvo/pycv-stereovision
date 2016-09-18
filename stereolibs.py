@@ -4,11 +4,13 @@
 import cv2
 import sys
 import numpy
+import datetime
 import ConfigParser
 from math import sqrt,pow
 from termcolor import colored
 
 # local requirements
+from utilities import *
 from StereoException import *
 
 ###############################################################
@@ -39,6 +41,8 @@ def pixelbased(ref_image, tar_image, out_image, settings_file):
     except:
         if settings["policy"] == "TRA_DIF":
             raise StereoException("Missing option in configuration file!")
+        else:
+            settings["threshold"] = None
 
     # get height and width
     print colored("pixelbased> ", "blue", attrs=["bold"]) + "Reading image properties"
@@ -90,8 +94,11 @@ def pixelbased(ref_image, tar_image, out_image, settings_file):
         pv = int(float(255 * abs(disparity)) / (settings["disp_range"]))
         out_image.itemset((y, x, 0), pv)
 
+    # output file name
+    out_name = get_output_filename("PIXELBASED", settings["policy"], None, settings["disp_range"], settings["threshold"], None)
+
     # return
-    return out_image
+    return out_image, out_name
 
 
 ###############################################################
@@ -122,6 +129,8 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
     except:
         if settings["policy"] == "TRA_DIF":
             raise StereoException("Missing option in configuration file!")
+        else:
+            settings["threshold"] = None
 
     # get height and width
     print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Reading image properties"
@@ -182,8 +191,11 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
         pixel_value = int(float(255 / settings["disp_range"]) * disparity)
         out_image.itemset((y, x, 0), pixel_value)
 
+    # output file name
+    out_name = get_output_filename("FIXEDWINDOW", settings["policy"], settings["window_size"]*2+1, settings["disp_range"], settings["threshold"], None)
+
     # return
-    return out_image
+    return out_image, out_name
 
 
 ###############################################################
@@ -243,9 +255,11 @@ def segmentation_based(ref_image, tar_image, out_image, settings_file):
                 
     try:
         settings["threshold"] = config.getint("segbased", "threshold")
-    except:
+    except:        
         if settings["policy"] == "TRA_DIF":
             raise StereoException("Missing option in configuration file!")
+        else:
+            settings["threshold"] = None
 
     # get height and width
     print colored("segbased> ", "blue", attrs=["bold"]) + "Reading image properties"
@@ -315,6 +329,9 @@ def segmentation_based(ref_image, tar_image, out_image, settings_file):
         # determine the pixel value for the output image
         pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
         out_image.itemset((y, x, 0), pixel_value)
+                    
+    # output file name
+    out_name = get_output_filename("SEGBASED", settings["policy"], settings["window_size"]*2+1, settings["disp_range"], settings["threshold"], settings["seg_threshold"])
 
     # return
-    return out_image
+    return out_image, out_name
