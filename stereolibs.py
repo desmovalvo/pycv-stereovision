@@ -5,12 +5,11 @@ import cv2
 import sys
 import numpy
 import ConfigParser
-from math import sqrt
+from math import sqrt,pow
 from termcolor import colored
 
 # local requirements
 from StereoException import *
-
 
 ###############################################################
 #
@@ -23,15 +22,23 @@ def pixelbased(ref_image, tar_image, out_image, settings_file):
 
     # read settings
     print colored("pixelbased> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
-    config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["policy"] = config.get("pixelbased", "policy")
-    settings["disp_range"] = config.getint("pixelbased", "disp_range")
+    try:
+        config = ConfigParser.ConfigParser()
+        config.read(settings_file)
+        settings = {}
+        settings["policy"] = config.get("pixelbased", "policy")
+        settings["disp_range"] = config.getint("pixelbased", "disp_range")
+    except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+        raise StereoException("Missing option in configuration file!")
+        
+    if settings["policy"] not in ["ABS_DIF", "SQR_DIF", "TRA_DIF"]:
+        raise StereoException("Policy MUST be one of ABS_DIF, SQR_DIF or TRA_DIF!")
+                
     try:
         settings["threshold"] = config.getint("pixelbased", "threshold")
     except:
-        pass
+        if settings["policy"] == "TRA_DIF":
+            raise StereoException("Missing option in configuration file!")
 
     # get height and width
     print colored("pixelbased> ", "blue", attrs=["bold"]) + "Reading image properties"
@@ -89,144 +96,6 @@ def pixelbased(ref_image, tar_image, out_image, settings_file):
 
 ###############################################################
 #
-# Integral Images - optimization function
-#
-###############################################################
-
-def build_intensity_matrix(img):
-
-    """This function is used to calculate the intensity of each pixel
-    for a given picture"""
-
-    # get height and width
-    width = img.shape[1]
-    height = img.shape[0]
-
-    # initialize the intensity_matrix matrix
-    intensity_matrix = []
-
-    # algorithm
-    for y in xrange(height):
-        
-        # add a line
-        intensity_matrix.append([])
-
-        for x in xrange(width):
-            intensity_matrix[y].append(sqrt(img[y][x][0]**2 + img[y][x][1]**2 + img[y][x][2]**2))
-
-    # return
-    return intensity_matrix
-
-
-def build_integral_image_matrix(img, squared=False):
-
-    """This function is used to calculate the integral image
-    for a given picture"""
-
-    # get height and width
-    width = img.shape[1]
-    height = img.shape[0]
-
-    # initialize the ii matrix
-    ii = []
-
-    # algorithm
-    for y in xrange(height):
-        
-        # add a line
-        ii.append([])
-
-        for x in xrange(width):
-
-            ii[y].append(None)
-            
-            # euclidean norm
-            # norm = sqrt(img[y][x][0]**2 + img[y][x][1]**2 + img[y][x][2]**2)
-
-            # RGB Luminance value
-            if squared:
-                norm = (img[y][x][0]*0.11 + img[y][x][1]*0.59 + img[y][x][2]*0.3)**2
-            else:
-                norm = img[y][x][0]*0.11 + img[y][x][1]*0.59 + img[y][x][2]*0.3
-
-            if (y > 0) and (x > 0):
-                ii[y][x] = ii[y-1][x] + ii[y][x-1] - ii[y-1][x-1] + norm
-
-            elif (y > 0) and (x == 0):
-                ii[y][x] = ii[y-1][x] + norm
-
-            elif (y == 0) and (x > 0):
-                ii[y][x] = ii[y][x-1] + norm
-                
-            else:
-                ii[y][x] = norm
-
-    # return
-    return ii
-
-
-def get_integral(x, y, width, height, ii, window_size, xoffset=0, yoffset=0):
-
-    """This function is used to get the result of the integral
-    for a given window"""
-
-    d = ii[min(y + yoffset + window_size, height-1)][min(x + xoffset + window_size, width - 1)]
-    c = ii[min(y + yoffset + window_size, height - 1)][max(0, x + xoffset - window_size)]
-    b = ii[max(0, y + yoffset - window_size)][min(x + xoffset + window_size, width - 1)]
-    a = ii[max(0, y + yoffset - window_size)][max(0, x + xoffset - window_size)]
-
-    return d - c - b + a
-
-
-def build_integral_bw_image_matrix(img, squared=False):
-
-    """This function is used to calculate the integral image
-    for a given picture"""
-
-    # get height and width
-    width = img.shape[1]
-    height = img.shape[0]
-
-    # initialize the ii matrix
-    ii = []
-
-    # algorithm
-    for y in xrange(height):
-        
-        # add a line
-        ii.append([])
-
-        for x in xrange(width):
-
-            ii[y].append(None)
-            
-            # euclidean norm
-            # norm = sqrt(img[y][x][0]**2 + img[y][x][1]**2 + img[y][x][2]**2)
-
-            # RGB Luminance value
-            if squared:
-                norm = img[y][x]
-            else:
-                norm = img[y][x] ** 2
-                            
-            if (y > 0) and (x > 0):
-                ii[y][x] = ii[y-1][x] + ii[y][x-1] - ii[y-1][x-1] + int(norm)
-
-            elif (y > 0) and (x == 0):
-                ii[y][x] = ii[y-1][x] + int(norm)
-
-            elif (y == 0) and (x > 0):
-                ii[y][x] = ii[y][x-1] + int(norm)
-                
-            else:
-                ii[y][x] = norm
-
-    # return
-    return ii
-
-
-###############################################################
-#
 # Fixed Window -- ALG 1
 #
 ###############################################################
@@ -235,16 +104,24 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
 
     # read settings
     print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
-    config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["disp_range"] = config.getint("fixedwindow", "disp_range")
-    settings["window_size"] = config.getint("fixedwindow", "window_size")
-    settings["policy"] = config.get("fixedwindow", "policy")
+    try:
+        config = ConfigParser.ConfigParser()
+        config.read(settings_file)
+        settings = {}
+        settings["disp_range"] = config.getint("fixedwindow", "disp_range")
+        settings["window_size"] = config.getint("fixedwindow", "window_size")
+        settings["policy"] = config.get("fixedwindow", "policy")
+    except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+        raise StereoException("Missing option in configuration file!")
+        
+    if settings["policy"] not in ["ABS_DIF", "SQR_DIF", "TRA_DIF"]:
+        raise StereoException("Policy MUST be one of ABS_DIF, SQR_DIF or TRA_DIF!")
+                
     try:
         settings["threshold"] = config.getint("fixedwindow", "threshold")
     except:
-        pass
+        if settings["policy"] == "TRA_DIF":
+            raise StereoException("Missing option in configuration file!")
 
     # get height and width
     print colored("fixedwindow> ", "blue", attrs=["bold"]) + "Reading image properties"
@@ -311,7 +188,38 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
 
 ###############################################################
 #
-# Segmentation-based approach
+# Intensity matrix building function
+#
+###############################################################
+
+def build_intensity_matrix(img):
+
+    """This function is used to calculate the intensity of each pixel
+    for a given picture"""
+
+    # get height and width
+    width = img.shape[1]
+    height = img.shape[0]
+
+    # initialize the intensity_matrix matrix
+    intensity_matrix = []
+
+    # algorithm
+    for y in xrange(height):
+        
+        # add a line
+        intensity_matrix.append([])
+
+        for x in xrange(width):
+            intensity_matrix[y].append(sqrt(img[y][x][0]**2 + img[y][x][1]**2 + img[y][x][2]**2))
+
+    # return
+    return intensity_matrix
+
+
+###############################################################
+#
+# Segmentation-based - ALG 2
 #
 ###############################################################
 
@@ -358,57 +266,55 @@ def segmentation_based(ref_image, tar_image, out_image, settings_file):
     
     # iterate over the pixels
     print colored("segbased> ", "blue", attrs=["bold"]) + "Building disparity map"
-    for x in range(width):
-        for y in range(height):
+    for (y, x), value in numpy.ndenumerate(tar_intensity_matrix):
             
-            # initialize disparity and distance
-            min_distance = sys.maxint
-            disparity = 0
+        # initialize disparity and distance
+        min_distance = sys.maxint
+        disparity = 0
 
-            # calculate indices for reference image
-            py = range(y-settings["window_size"],y+settings["window_size"]+1)
-            px = range(x-settings["window_size"],x+settings["window_size"]+1)    
+        # calculate indices for reference image
+        py = xrange(y-settings["window_size"],y+settings["window_size"]+1)
+        px = xrange(x-settings["window_size"],x+settings["window_size"]+1)    
 
-            # get the window of the reference image centered on (x,y)
-            indices = [(yyy * width + xxx) for xxx in px for yyy in py]
-            pw1 = ref_intensity_matrix.take(indices, mode="wrap")
+        # get the window of the reference image centered on (x,y)
+        indices = [(yyy * width + xxx) for xxx in px for yyy in py]
+        pw1 = ref_intensity_matrix.take(indices, mode="wrap")
 
-            # get the window of the segmented image centered on (x,y)
-            seg_window = ref_seg_intensity_matrix.take(indices, mode="wrap")
-            seg_bool = (seg_window - ref_seg_intensity_matrix[y][x]) < settings["seg_threshold"]
-            ref_win_sum = numpy.sum(seg_bool * pw1)
+        # get the window of the segmented image centered on (x,y)
+        seg_window = ref_seg_intensity_matrix.take(indices, mode="wrap")
+        seg_bool = (seg_window - ref_seg_intensity_matrix[y][x]) < settings["seg_threshold"]
+        ref_win_sum = numpy.sum(seg_bool * pw1)
+        if settings["policy"] == "TRA_DIF":
             minmatrix = numpy.full(pw1.shape, settings["threshold"])
-            
-            # iterate over the pixel of the target image between x-d and x 
-            for xx in xrange(max(x-settings["disp_range"], 0), x+1):
+        
+        # iterate over the pixel of the target image between x-d and x 
+        for xx in xrange(max(x-settings["disp_range"], 0), x+1):
+                            
+            # calculate indices for target image
+            pxx = xrange(xx-settings["window_size"],xx+settings["window_size"]+1)
+            indices = [(yyyy * width + xxxx) for xxxx in pxx for yyyy in py]
 
-                d = 0
+            # get the window of the target image centered on (xx,y)
+            tw1 = tar_intensity_matrix.take(indices, mode="wrap")
 
-                # calculate indices for target image
-                pxx = xrange(xx-settings["window_size"],xx+settings["window_size"]+1)
-                indices = [(yyyy * width + xxxx) for xxxx in pxx for yyyy in py]
+            # matching cost
+            if settings["policy"] == "ABS_DIF":
+                d = numpy.sum(abs(pw1*seg_bool - tw1))
                 
-                # get the window of the target image centered on (xx,y)
-                tw1 = tar_intensity_matrix.take(indices, mode="wrap")
+            elif settings["policy"] == "SQR_DIF":
+                d = numpy.sum((pw1*seg_bool - tw1)**2)
 
-                # matching cost
-                if settings["policy"] == "ABS_DIF":
-                    d = numpy.sum(abs(pw1*seg_bool - tw1))
-                    
-                elif settings["policy"] == "SQR_DIF":
-                    d = numpy.sum((pw1*seg_bool - tw1)**2)
+            elif settings["policy"] == "TRA_DIF":
+                d = numpy.sum(numpy.minimum(abs(pw1-tw1), minmatrix))
+                
+            # comparison
+            if d < min_distance:
+                min_distance = d
+                disparity = x - xx
 
-                elif settings["policy"] == "TRA_DIF":
-                    d = numpy.sum(numpy.minimum(abs(pw1-tw1), minmatrix))
-                    
-                # comparison
-                if d < min_distance:
-                    min_distance = d
-                    disparity = x - xx
-
-            # determine the pixel value for the output image
-            pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
-            out_image.itemset((y, x, 0), pixel_value)
+        # determine the pixel value for the output image
+        pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
+        out_image.itemset((y, x, 0), pixel_value)
 
     # return
     return out_image
