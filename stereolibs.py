@@ -1,13 +1,16 @@
 #!/usr/bin/python
 
+# system-wide requirements
 import cv2
-import pdb
 import sys
-import time
 import numpy
 import ConfigParser
 from math import sqrt
 from termcolor import colored
+
+# local requirements
+from StereoException import *
+
 
 ###############################################################
 #
@@ -308,96 +311,95 @@ def fixedwindow(ref_image, tar_image, out_image, settings_file):
 
 ###############################################################
 #
-# Segmentation
+# Segmentation-based approach
 #
 ###############################################################
-
-def segment(img):
-    
-    """This function is used to segment an image"""
-    
-    # segmentation
-    seg_img = cv2.pyrMeanShiftFiltering(img, 30, 30)
-
-    # return
-    return seg_img
-
 
 def segmentation_based(ref_image, tar_image, out_image, settings_file):
 
     # read settings
     print colored("segbased> ", "blue", attrs=["bold"]) + "Reading algorithm settings"
     config = ConfigParser.ConfigParser()
-    config.read(settings_file)
-    settings = {}
-    settings["disp_range"] = config.getint("segbased", "disp_range")
-    settings["window_size"] = config.getint("segbased", "window_size")
-    settings["policy"] = config.get("segbased", "policy")
+    config.read(settings_file)       
+    try:
+        settings = {}
+        settings["disp_range"] = config.getint("segbased", "disp_range")
+        settings["window_size"] = config.getint("segbased", "window_size")
+        settings["policy"] = config.get("segbased", "policy")
+        settings["seg_threshold"] = config.getint("segbased", "seg_threshold")
+    except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
+        raise StereoException("Missing option in configuration file!")
+        
+    if settings["policy"] not in ["ABS_DIF", "SQR_DIF", "TRA_DIF"]:
+        raise StereoException("Policy MUST be one of ABS_DIF, SQR_DIF or TRA_DIF!")
+                
     try:
         settings["threshold"] = config.getint("segbased", "threshold")
     except:
-        pass
+        if settings["policy"] == "TRA_DIF":
+            raise StereoException("Missing option in configuration file!")
 
     # get height and width
     print colored("segbased> ", "blue", attrs=["bold"]) + "Reading image properties"
     width = out_image.shape[1]
     height = out_image.shape[0]
     
-    # build the intensity matrices
-    # TODO: multithread
+    # build the intensity matrices of reference and target images
+    # the intensity matrix contains for each pixel its euclidean norm
     print colored("segbased> ", "blue", attrs=["bold"]) + "Building intensity matrices"
     ref_intensity_matrix = numpy.array(build_intensity_matrix(ref_image))
     tar_intensity_matrix = numpy.array(build_intensity_matrix(tar_image))
 
-    # segmentation of the reference image
-    # we also build a matrix with the euclidean norm of each pixel
+    # segmentation of the reference image and intensity matrix of the segmented image
+    # the intensity matrix contains for each pixel its euclidean norm
     print colored("segbased> ", "blue", attrs=["bold"]) + "Segmentation of the reference image"
-    ref_seg_image = segment(ref_image)
+    ref_seg_image = cv2.pyrMeanShiftFiltering(ref_image, 30, 30)
     ref_seg_intensity_matrix = numpy.array(build_intensity_matrix(ref_image))
     
     # iterate over the pixels
     print colored("segbased> ", "blue", attrs=["bold"]) + "Building disparity map"
-    y = 0
-    starttime = time.time() * 1000
     for x in range(width):
         for y in range(height):
-
+            
             # initialize disparity and distance
             min_distance = sys.maxint
             disparity = 0
 
             # calculate indices for reference image
-            py = range(max(0, y-settings["window_size"]),min(y+settings["window_size"], height))
-            px = range(max(0, x-settings["window_size"]),min(x+settings["window_size"], width))    
+            py = range(y-settings["window_size"],y+settings["window_size"]+1)
+            px = range(x-settings["window_size"],x+settings["window_size"]+1)    
 
             # get the window of the reference image centered on (x,y)
             indices = [(yyy * width + xxx) for xxx in px for yyy in py]
-            pw1 = ref_intensity_matrix.take(indices).reshape(len(px),len(py)) #.reshape(settings["window_size"]*2, settings["window_size"]*2)
+            pw1 = ref_intensity_matrix.take(indices, mode="wrap")
 
             # get the window of the segmented image centered on (x,y)
-            # TODO: optimize while moving to the next column
-            seg_window = ref_seg_intensity_matrix.take(indices).reshape(len(px),len(py)) #.reshape(settings["window_size"]*2, settings["window_size"]*2)
-            seg_bool = (seg_window - ref_seg_intensity_matrix[y][x]) < 100
+            seg_window = ref_seg_intensity_matrix.take(indices, mode="wrap")
+            seg_bool = (seg_window - ref_seg_intensity_matrix[y][x]) < settings["seg_threshold"]
             ref_win_sum = numpy.sum(seg_bool * pw1)
-
-            # initialize indices for target image
+            minmatrix = numpy.full(pw1.shape, settings["threshold"])
             
             # iterate over the pixel of the target image between x-d and x 
-            tw1 = None
             for xx in xrange(max(x-settings["disp_range"], 0), x+1):
 
                 d = 0
 
                 # calculate indices for target image
-                pxx = xrange(max(0, xx-settings["window_size"]),min(xx+settings["window_size"], width))
+                pxx = xrange(xx-settings["window_size"],xx+settings["window_size"]+1)
                 indices = [(yyyy * width + xxxx) for xxxx in pxx for yyyy in py]
                 
                 # get the window of the target image centered on (xx,y)
-                tw1 = tar_intensity_matrix.take(indices).reshape(len(pxx),len(py))
-                try:
+                tw1 = tar_intensity_matrix.take(indices, mode="wrap")
+
+                # matching cost
+                if settings["policy"] == "ABS_DIF":
                     d = numpy.sum(abs(pw1*seg_bool - tw1))
-                except:
-                    pass
+                    
+                elif settings["policy"] == "SQR_DIF":
+                    d = numpy.sum((pw1*seg_bool - tw1)**2)
+
+                elif settings["policy"] == "TRA_DIF":
+                    d = numpy.sum(numpy.minimum(abs(pw1-tw1), minmatrix))
                     
                 # comparison
                 if d < min_distance:
@@ -408,7 +410,5 @@ def segmentation_based(ref_image, tar_image, out_image, settings_file):
             pixel_value = int(float(255 * abs(disparity)) / (settings["disp_range"]))
             out_image.itemset((y, x, 0), pixel_value)
 
-    print time.time()*1000 - starttime
-    
     # return
     return out_image
